@@ -1,0 +1,22 @@
+login_url: "/user/login"
+login_out_url: "/user/loginout"
+
+token:
+  name: "x-custom-token"
+  expire: 300
+  secret: ""
+
+redis:
+  address: "192.168.56.106:6379"
+  password: ""
+  db: 0
+  timeout: 10
+  max_idle: 4
+  max_active: 8
+  max_idle_timeout: 4
+  health_check_interval: 60
+
+http:
+  login_url: "http://192.168.56.106:8888/user/login"
+  login_out_url: "http://192.168.56.106:8888/user/loginout"
+  timeout: 10

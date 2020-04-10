@@ -44,7 +44,7 @@ func init() {
 		Codec:      codec,
 	}
 
-	//注册handler
+	handlers = make(map[string]handlerFunc)
 	handlers[Config.LoginUrl] = handler.Login
 	handlers[Config.LoginOutUrl] = handler.LoginOut
 
@@ -116,7 +116,7 @@ func (h *Handler) Login(kong *pdk.PDK) {
 
 	header := make(map[string]string)
 	header[Config.Token.Name] = token
-	responseFunc(kong, 0, "登录成功", resp.Data, header)
+	responseFunc(kong, 1, "登录成功", resp.Data, header)
 }
 
 func (h *Handler) LoginOut(kong *pdk.PDK) {

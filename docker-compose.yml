@@ -1,0 +1,25 @@
+version: "3.7"
+
+services:
+  user-service:
+    build:
+      ./service/user/
+    ports:
+      - 8888:8888
+  order-service:
+    build:
+      ./service/order/
+    ports:
+      - 8889:8889
+  api-gateway:
+    build:
+      ./
+    ports:
+      - 8000:8000
+      - 8001:8001
+      - 8443:8443
+  redis:
+    image: redis:5.0.8
+    ports:
+      - 6379:6379
+

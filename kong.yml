@@ -1,0 +1,27 @@
+_format_version: "1.1"
+
+services:
+  - name: login-service
+    url: http://user-server:8888/user/login
+    plugins:
+      - name: auth-plugin
+    routes:
+      - name: login-route
+        paths:
+          - /user/login
+  - name: loginout-service
+    url: http://user-service:8888/user/loginout
+    plugins:
+      - name: auth-plugin
+    routes:
+      - name: loginout-route
+        paths:
+          - /user/loginout
+  - name: orderlist-service
+    url: http://order-service:8889/order/list
+    plugins:
+      - name: auth-plugin
+    routes:
+      - name: orderlist-route
+        paths:
+          - /order/list

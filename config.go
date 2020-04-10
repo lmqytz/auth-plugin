@@ -23,14 +23,14 @@ var (
 type Conf struct {
 	LoginUrl    string    `yaml:"login_url"`
 	LoginOutUrl string    `yaml:"login_out_url"`
-	Token       Token     `yaml:"token_name"`
+	Token       Token     `yaml:"token"`
 	RedisConf   RedisConf `yaml:"redis"`
 	HttpConf    HttpConf  `yaml:"http"`
 }
 
 type Token struct {
 	Name   string `yaml:"name"`
-	Expire int64  `json:"expire"`
+	Expire int64  `yaml:"expire"`
 	Secret string `yaml:"secret"`
 }
 

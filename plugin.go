@@ -128,23 +128,32 @@ func (h *Handler) Login(kong *pdk.PDK) {
 
 func (h *Handler) LoginOut(kong *pdk.PDK) {
 	jwtToken, err := kong.Request.GetHeader(Config.Token.Name)
+	if jwtToken == "" {
+		responseFunc(kong, 0, "token无效", nil)
+		return
+	}
+
 	if err != nil {
 		responseFunc(kong, 0, err.Error(), nil)
+		return
 	}
 
 	payload, err := h.Codec.parseToken(jwtToken)
 	if err != nil {
 		responseFunc(kong, 0, err.Error(), nil)
+		return
 	}
 
 	userData, err := h.Redis.Do("HGET", Config.Token.Name, payload["uid"])
 	if err != nil {
 		_ = kong.Log.Err(err.Error())
 		responseFunc(kong, 0, err.Error(), nil)
+		return
 	}
 
 	if userData == nil {
 		responseFunc(kong, 0, "尚未登录", nil)
+		return
 	}
 
 	//执行退出操作
@@ -152,6 +161,7 @@ func (h *Handler) LoginOut(kong *pdk.PDK) {
 	if err != nil {
 		_ = kong.Log.Err(err.Error())
 		responseFunc(kong, 0, "退出失败，请重试", nil)
+		return
 	}
 
 	responseFunc(kong, 1, "OK", nil)
@@ -160,26 +170,28 @@ func (h *Handler) LoginOut(kong *pdk.PDK) {
 func (h *Handler) Common(kong *pdk.PDK) {
 	jwtToken, err := kong.Request.GetHeader(Config.Token.Name)
 	if jwtToken == "" {
-		responseFunc(kong, 0, "尚未登录", nil)
+		responseFunc(kong, 0, "token无效", nil)
+		return
 	}
 
 	if err != nil {
 		responseFunc(kong, 0, err.Error(), nil)
+		return
 	}
 
 	payload, err := h.Codec.parseToken(jwtToken)
 	if err != nil {
 		responseFunc(kong, 0, err.Error(), nil)
+		return
 	}
 
-	uid := payload["uid"].(int64)
-	//是否登录
+	uid := int(payload["uid"].(float64))
 	session, _ := h.Redis.Do("HGET", Config.Token.Name, uid)
 	if session == nil {
 		responseFunc(kong, 0, "尚未登录", nil)
+		return
 	}
 
-	//登录是否已经过期
 	var data SessionModel
 	if err := json.Unmarshal(session.([]byte), &data); err != nil {
 		_ = kong.Log.Err(err)
@@ -189,13 +201,13 @@ func (h *Handler) Common(kong *pdk.PDK) {
 	if now-data.LastVisit > Config.Token.Expire {
 		_, _ = h.Redis.Do("HDEL", Config.Token.Name, uid)
 		responseFunc(kong, 0, "登录已过期，请重新登录", nil)
+		return
 	}
 
 	if err := kong.ServiceRequest.SetHeader("uid", strconv.Itoa(int(uid))); err != nil {
 		_ = kong.Log.Err(err)
 	}
 
-	//刷新登录时间
 	data.LastVisit = now
 	hashValue, _ := json.Marshal(SessionModel{LastVisit: now})
 	_, err = h.Redis.Do("HSET", Config.Token.Name, uid, hashValue)

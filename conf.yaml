@@ -4,7 +4,7 @@ login_out_url: "/user/loginout"
 token:
   name: "x-custom-token"
   expire: 300
-  secret: ""
+  secret: "a@N12%bd!"
 
 redis:
   address: "192.168.56.106:6379"

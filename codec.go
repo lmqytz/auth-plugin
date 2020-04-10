@@ -22,6 +22,7 @@ func (c *Codec) parseToken(jwtToken string) (map[string]interface{}, error) {
 	token, err := jwt.Parse(jwtToken, func(token *jwt.Token) (interface{}, error) {
 		return []byte(c.Secret), nil
 	})
+
 	if err != nil {
 		return nil, err
 	}

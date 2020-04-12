@@ -30,12 +30,15 @@ ENV KONG_LOG_LEVEL debug
 USER root
 
 RUN mkdir /tmp/go-plugins
+RUN mkdir -p /go/src/auth-plugin/
 
 COPY kong.yml /tmp/kong.yaml
+COPY conf.yaml /go/src/auth-plugin/conf.yaml
 COPY --from=builder /tmp/auth-plugin.so /tmp/go-plugins/auth-plugin.so
 COPY --from=builder /go/bin/go-pluginserver /usr/local/bin/go-pluginserver
 
 RUN chmod 777 -R /tmp/
 RUN chmod 777 -R /usr/local/bin/
+RUN chmod 777 -R /go/src/auth-plugin/
 
 USER kong

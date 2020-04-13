@@ -18,6 +18,7 @@ RUN go get -u github.com/dgrijalva/jwt-go && \
 RUN go build -buildmode=plugin -o /tmp/auth-plugin.so plugin.go client.go codec.go config.go redis.go
 
 #======================================= kong ==============================================
+
 FROM kong:alpine
 
 ENV KONG_DATABASE off
@@ -29,16 +30,16 @@ ENV KONG_LOG_LEVEL debug
 
 USER root
 
-RUN mkdir /tmp/go-plugins
-RUN mkdir -p /go/src/auth-plugin/
+RUN mkdir /tmp/go-plugins && \
+    mkdir -p /go/src/auth-plugin/
 
 COPY kong.yml /tmp/kong.yaml
 COPY conf.yaml /go/src/auth-plugin/conf.yaml
 COPY --from=builder /tmp/auth-plugin.so /tmp/go-plugins/auth-plugin.so
 COPY --from=builder /go/bin/go-pluginserver /usr/local/bin/go-pluginserver
 
-RUN chmod 777 -R /tmp/
-RUN chmod 777 -R /usr/local/bin/
-RUN chmod 777 -R /go/src/auth-plugin/
+RUN chmod 777 -R /tmp/ && \
+    chmod 777 -R /usr/local/bin/ && \
+    chmod 777 -R /go/src/auth-plugin/
 
 USER kong

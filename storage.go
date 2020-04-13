@@ -13,6 +13,7 @@ func NewRedis(conf RedisConf) *Redis {
         Dial: func() (redis.Conn, error) {
             var options []redis.DialOption
             options = append(options, redis.DialConnectTimeout(time.Duration(conf.Timeout)*time.Second))
+
             conn, err := redis.Dial("tcp", conf.Address, options...)
             if conn == nil || err != nil {
                 return nil, err

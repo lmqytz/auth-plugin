@@ -2,6 +2,8 @@ package main
 
 import (
     "github.com/gin-gonic/gin"
+    "math/rand"
+    "time"
 )
 
 func main() {
@@ -12,10 +14,13 @@ func main() {
             name = "luoman"
         }
 
+        rand.Seed(time.Now().UnixNano())
+        uid := rand.Intn(99) + 1
+
         c.JSON(200, gin.H{
             "boolean": 1,
             "message": "登录成功",
-            "data":    map[string]interface{}{"uid": 100, "username": name},
+            "data":    map[string]interface{}{"uid": uid, "username": name},
         })
     })
 

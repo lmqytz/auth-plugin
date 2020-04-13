@@ -3,7 +3,6 @@ package main
 import (
     "encoding/json"
     "github.com/Kong/go-pdk"
-    "net/http"
     "strconv"
     "time"
 )
@@ -14,62 +13,40 @@ func New() interface{} {
     return &Hook{}
 }
 
-type Handler struct {
+type AuthPlugin struct {
     Redis      *Redis
     HttpClient *HttpClient
     Codec      *Codec
 }
 
-type SessionData struct {
-    LastVisit int64 `json:"last_visit"`
+type Session struct {
+    LastVisit int64  `json:"last_visit"`
+    Signature string `json:"signature"`
+}
+
+func (s *Session) Parse(data string) {
+    _ = json.Unmarshal([]byte(data), &s)
 }
 
 type handlerFunc func(kong *pdk.PDK)
 
 var (
-    responseFunc func(kong *pdk.PDK, status int, message string, data map[string]interface{}, header map[string]string)
-    handler      Handler
-    handlers     map[string]handlerFunc
+    authPlugin AuthPlugin
+    handlers   map[string]handlerFunc
 )
 
 func init() {
     InitConfig()
-    redisHandler := NewRedis(Config.RedisConf)
-    httpClient := NewHttpClient(Config.HttpConf)
-    codec := &Codec{Secret: Config.Token.Secret}
 
-    handler = Handler{
-        Redis:      redisHandler,
-        HttpClient: httpClient,
-        Codec:      codec,
+    authPlugin = AuthPlugin{
+        Redis:      NewRedis(Config.RedisConf),
+        HttpClient: NewHttpClient(Config.HttpConf),
+        Codec:      &Codec{SecretKey: Config.Token.Secret},
     }
 
     handlers = make(map[string]handlerFunc)
-    handlers[Config.LoginUrl] = handler.Login
-    handlers[Config.LoginOutUrl] = handler.LoginOut
-
-    responseFunc = func(kong *pdk.PDK, status int, message string, data map[string]interface{}, header map[string]string) {
-        var response ResponseData
-        response.Boolean = status
-        response.Message = message
-        response.Data = data
-
-        h := make(http.Header)
-        h.Set("Content-Type", "application/json")
-        if len(header) > 0 {
-            for k, v := range header {
-                h.Set(k, v)
-            }
-        }
-
-        body, _ := json.Marshal(response)
-
-        if status == 0 {
-            _ = kong.Log.Err(message)
-        }
-
-        kong.Response.Exit(200, string(body), h)
-    }
+    handlers[Config.LoginUrl] = authPlugin.Login
+    handlers[Config.LoginOutUrl] = authPlugin.LoginOut
 }
 
 func (hook *Hook) Access(kong *pdk.PDK) {
@@ -78,141 +55,143 @@ func (hook *Hook) Access(kong *pdk.PDK) {
     if f, ok := handlers[path]; ok {
         f(kong)
     } else {
-        handler.Common(kong)
+        authPlugin.Common(kong)
     }
 }
 
-func (h *Handler) Login(kong *pdk.PDK) {
+func (authPlugin *AuthPlugin) Login(kong *pdk.PDK) {
     query, err := kong.Request.GetRawQuery()
     if err != nil {
-        responseFunc(kong, 0, err.Error(), nil, nil)
+        Response(kong, 0, err.Error(), nil, nil)
         return
     }
 
-    resp, err := h.HttpClient.Post(Config.HttpConf.LoginUrl, query)
+    resp, err := authPlugin.HttpClient.Post(Config.HttpConf.LoginUrl, query)
     if err != nil {
-        responseFunc(kong, 0, err.Error(), nil, nil)
+        Response(kong, 0, err.Error(), nil, nil)
         return
     }
 
     if resp.Boolean == 0 {
-        responseFunc(kong, 0, resp.Message, nil, nil)
+        Response(kong, 0, resp.Message, nil, nil)
         return
     }
 
-    now := time.Now().Unix()
-    payload := map[string]interface{}{
+    loginData := payload{
         "uid":  resp.Data["uid"],
-        "time": now,
+        "time": time.Now().Unix(),
     }
 
-    token, _ := h.Codec.createToken(payload)
-    hashValue, _ := json.Marshal(SessionData{LastVisit: now})
-    _, err = h.Redis.Do("HSET", Config.Token.Name, resp.Data["uid"], string(hashValue))
-    if err != nil {
-        responseFunc(kong, 0, resp.Message, nil, nil)
+    var sign *Sign
+    if sign, err = SetLoginStatus(loginData); err != nil {
+        Response(kong, 0, err.Error(), nil, nil)
         return
     }
 
     header := make(map[string]string)
-    header[Config.Token.Name] = token
-    responseFunc(kong, 1, "登录成功", resp.Data, header)
+    header[Config.Token.Name] = sign.toString()
+    Response(kong, 1, "登录成功", resp.Data, header)
 }
 
-func (h *Handler) LoginOut(kong *pdk.PDK) {
-    jwtToken, err := kong.Request.GetHeader(Config.Token.Name)
-    if jwtToken == "" {
-        responseFunc(kong, 0, "token无效", nil, nil)
+func (authPlugin *AuthPlugin) LoginOut(kong *pdk.PDK) {
+    authentication, err := kong.Request.GetHeader(Config.Token.Name)
+    if authentication == "" {
+        Response(kong, 0, "token无效", nil, nil)
         return
     }
 
     if err != nil {
-        responseFunc(kong, 0, err.Error(), nil, nil)
+        Response(kong, 0, err.Error(), nil, nil)
         return
     }
 
-    payload, err := h.Codec.parseToken(jwtToken)
+    sign := authPlugin.Codec.Decode(authentication)
+    if _, ok := sign.Payload["uid"]; !ok {
+        Response(kong, 0, "token信息不完整", nil, nil)
+        return
+    }
+
+    loginInfo, err := authPlugin.Redis.Do("HGET", Config.Token.Name, sign.Payload["uid"])
     if err != nil {
-        responseFunc(kong, 0, err.Error(), nil, nil)
+        Response(kong, 0, err.Error(), nil, nil)
         return
     }
 
-    userData, err := h.Redis.Do("HGET", Config.Token.Name, payload["uid"])
-    if err != nil {
-        responseFunc(kong, 0, err.Error(), nil, nil)
+    if loginInfo == nil || loginInfo == "" {
+        Response(kong, 0, "尚未登录", nil, nil)
         return
     }
 
-    if userData == nil {
-        responseFunc(kong, 0, "尚未登录", nil, nil)
+    if _, err := CheckToken(authentication, loginInfo); err != nil {
+        Response(kong, 0, err.Error(), nil, nil)
         return
     }
 
     query, err := kong.Request.GetRawQuery()
-    resp, err := h.HttpClient.Post(Config.HttpConf.LoginOutUrl, query)
+    resp, err := authPlugin.HttpClient.Post(Config.HttpConf.LoginOutUrl, query)
     if err != nil {
-        responseFunc(kong, 0, err.Error(), nil, nil)
+        Response(kong, 0, err.Error(), nil, nil)
         return
     }
 
     if resp.Boolean == 0 {
-        responseFunc(kong, 0, resp.Message, nil, nil)
+        Response(kong, 0, resp.Message, nil, nil)
         return
     }
 
-    //网关退出
-    _, err = h.Redis.Do("HDEL", Config.Token.Name, payload["uid"])
+    _, err = authPlugin.Redis.Do("HDEL", Config.Token.Name, sign.Payload["uid"])
     if err != nil {
-        responseFunc(kong, 0, "退出失败，请重试", nil, nil)
+        Response(kong, 0, "退出失败，请重试", nil, nil)
         return
     }
 
-    responseFunc(kong, 1, "OK", nil, nil)
+    Response(kong, 1, "OK", nil, nil)
 }
 
-func (h *Handler) Common(kong *pdk.PDK) {
-    jwtToken, err := kong.Request.GetHeader(Config.Token.Name)
-    if jwtToken == "" {
-        responseFunc(kong, 0, "token无效", nil, nil)
+func (authPlugin *AuthPlugin) Common(kong *pdk.PDK) {
+    authentication, err := kong.Request.GetHeader(Config.Token.Name)
+    if authentication == "" {
+        Response(kong, 0, "token无效", nil, nil)
         return
     }
 
     if err != nil {
-        responseFunc(kong, 0, err.Error(), nil, nil)
+        Response(kong, 0, err.Error(), nil, nil)
         return
     }
 
-    payload, err := h.Codec.parseToken(jwtToken)
-    if err != nil {
-        responseFunc(kong, 0, err.Error(), nil, nil)
+    token := authPlugin.Codec.Decode(authentication)
+
+    uid := int(token.Payload["uid"].(float64))
+    loginInfo, _ := authPlugin.Redis.Do("HGET", Config.Token.Name, uid)
+    if loginInfo == nil {
+        Response(kong, 0, "尚未登录", nil, nil)
         return
     }
 
-    uid := int(payload["uid"].(float64))
-    session, _ := h.Redis.Do("HGET", Config.Token.Name, uid)
-    if session == nil {
-        responseFunc(kong, 0, "尚未登录", nil, nil)
+    var session Session
+    if session, err = CheckToken(authentication, loginInfo); err != nil {
+        Response(kong, 0, err.Error(), nil, nil)
         return
     }
-
-    var data SessionData
-    _ = json.Unmarshal(session.([]byte), &data)
 
     now := time.Now().Unix()
-    if now-data.LastVisit > Config.Token.Expire {
-        _, _ = h.Redis.Do("HDEL", Config.Token.Name, uid)
-        responseFunc(kong, 0, "登录已过期，请重新登录", nil, nil)
+    if now-session.LastVisit > Config.Token.Expire {
+        _, err = authPlugin.Redis.Do("HDEL", Config.Token.Name, uid)
+        Response(kong, 0, "登录已过期，请重新登录", nil, nil)
+        return
+    }
+
+    loginData := payload{
+        "uid":  uid,
+        "time": now,
+    }
+    if _, err := SetLoginStatus(loginData); err != nil {
+        Response(kong, 0, err.Error(), nil, nil)
         return
     }
 
     if err := kong.ServiceRequest.SetHeader("uid", strconv.Itoa(uid)); err != nil {
-        _ = kong.Log.Err(err)
-    }
-
-    data.LastVisit = now
-    hashValue, _ := json.Marshal(SessionData{LastVisit: now})
-    _, err = h.Redis.Do("HSET", Config.Token.Name, uid, hashValue)
-    if err != nil {
         _ = kong.Log.Err(err)
     }
 }

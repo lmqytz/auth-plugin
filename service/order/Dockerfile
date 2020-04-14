@@ -12,9 +12,9 @@ RUN mkdir -p src/order-service
 WORKDIR src/order-service
 COPY main.go .
 
-RUN go mod init order-service
-RUN go mod vendor
-RUN go build .
+RUN go mod init order-service && \
+    go mod vendor && \
+    go build .
 
 EXPOSE 8889
 

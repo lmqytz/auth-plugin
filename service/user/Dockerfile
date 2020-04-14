@@ -12,9 +12,9 @@ RUN mkdir -p src/user-service
 WORKDIR src/user-service
 COPY main.go .
 
-RUN go mod init user-service
-RUN go mod vendor
-RUN go build .
+RUN go mod init user-service && \
+    go mod vendor && \
+    go build .
 
 EXPOSE 8888
 

@@ -15,7 +15,7 @@ RUN go get -u github.com/dgrijalva/jwt-go && \
     go get -u github.com/gomodule/redigo/redis && \
     go get -u gopkg.in/yaml.v2
 
-RUN go build -buildmode=plugin -o /tmp/auth-plugin.so plugin.go client.go codec.go config.go redis.go
+RUN go build -buildmode=plugin -o /tmp/auth-plugin.so plugin.go client.go codec.go config.go storage.go helper.go
 
 #======================================= kong ==============================================
 

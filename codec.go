@@ -4,6 +4,7 @@ import (
     "crypto/md5"
     "encoding/base64"
     "encoding/json"
+    "errors"
     "fmt"
     "strings"
 )
@@ -39,21 +40,23 @@ func (c *Codec) Encode(payload payload) *Sign {
     }
 }
 
-func (c *Codec) Decode(token string) *Sign {
+func (c *Codec) Decode(token string) (*Sign, error) {
     sign := &Sign{}
 
     if token == "" {
-        return sign
+        return sign, errors.New("token无效")
     }
 
     signSlice := strings.Split(token, ".")
     bytes, _ := base64.StdEncoding.DecodeString(signSlice[0])
 
     var payload payload
-    _ = json.Unmarshal(bytes, &payload)
+    if err := json.Unmarshal(bytes, &payload); err != nil {
+        return sign, err
+    }
     sign.Payload = payload
     sign.PayloadStr = string(bytes)
     sign.Signature = signSlice[1]
 
-    return sign
+    return sign, nil
 }

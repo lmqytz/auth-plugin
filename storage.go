@@ -11,26 +11,35 @@ func NewRedis(conf RedisConf) *Redis {
         IdleTimeout: time.Duration(conf.MaxIdleTime) * time.Second,
         MaxActive:   conf.MaxActive,
         Dial: func() (redis.Conn, error) {
-            var options []redis.DialOption
-            options = append(options, redis.DialConnectTimeout(time.Duration(conf.Timeout)*time.Second))
+            var (
+                conn    redis.Conn
+                err     error
+                doErr   error
+                options []redis.DialOption
+            )
 
-            conn, err := redis.Dial("tcp", conf.Address, options...)
+            options = append(options, redis.DialConnectTimeout(time.Duration(conf.Timeout)*time.Second))
+            conn, err = redis.Dial("tcp", conf.Address, options...)
             if conn == nil || err != nil {
                 return nil, err
             }
 
+            defer func() {
+                if doErr != nil {
+                    _ = conn.Close()
+                }
+            }()
+
             if conf.Password != "" {
-                _, err = conn.Do("AUTH", conf.Password)
-                if err != nil {
-                    conn.Close()
-                    return nil, err
+                _, doErr = conn.Do("AUTH", conf.Password)
+                if doErr != nil {
+                    return nil, doErr
                 }
             }
 
-            _, err = conn.Do("SELECT", conf.Db)
-            if err != nil {
-                conn.Close()
-                return nil, err
+            _, doErr = conn.Do("SELECT", conf.Db)
+            if doErr != nil {
+                return nil, doErr
             }
 
             return conn, nil

@@ -217,7 +217,7 @@ func (authPlugin *AuthPlugin) Common(kong *pdk.PDK) {
     now := time.Now().Unix()
     if now-session.LastVisit > Config.Token.Expire {
         _, err = authPlugin.Redis.Do("HDEL", Config.Token.Name, uid)
-        Response(kong, 0, "登录已过期，请重新登录", nil, nil)
+        Response(kong, 0, "尚未登录", nil, nil)
         return
     }
 
@@ -226,7 +226,6 @@ func (authPlugin *AuthPlugin) Common(kong *pdk.PDK) {
         "time": now,
     }
 
-    _ = authPlugin.Codec.Encode(loginData)
     refreshLoginInfo := Session{
         LastVisit: loginData["time"].(int64),
         Signature: session.Signature,
@@ -246,7 +245,7 @@ func CheckToken(authentication string, loginInfo interface{}) (Session, error) {
     session := Session{}
     session.Parse(string(loginInfo.([]byte)))
     if session.Signature != strings.Split(authentication, ".")[1] {
-        return session, errors.New("非法token")
+        return session, errors.New("尚未登录")
     }
 
     return session, nil

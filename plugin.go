@@ -28,8 +28,12 @@ type Session struct {
     Signature string `json:"signature"`
 }
 
-func (s *Session) Parse(data string) {
-    _ = json.Unmarshal([]byte(data), &s)
+func (s *Session) Parse(data string) error {
+    if err := json.Unmarshal([]byte(data), &s); err != nil {
+        return err
+    }
+
+    return nil
 }
 
 type handlerFunc func(kong *pdk.PDK)
@@ -110,13 +114,13 @@ func (authPlugin *AuthPlugin) Login(kong *pdk.PDK) {
 
     header := make(map[string]string)
     header[Config.Token.Name] = sign.toString()
-    Response(kong, 1, "登录成功", resp.Data, header)
+    Response(kong, 1, "login success", resp.Data, header)
 }
 
 func (authPlugin *AuthPlugin) LoginOut(kong *pdk.PDK) {
     authentication, err := kong.Request.GetHeader(Config.Token.Name)
     if authentication == "" {
-        Response(kong, 0, "token无效", nil, nil)
+        Response(kong, 0, "token is required", nil, nil)
         return
     }
 
@@ -132,7 +136,7 @@ func (authPlugin *AuthPlugin) LoginOut(kong *pdk.PDK) {
     }
 
     if _, ok := sign.Payload["uid"]; !ok {
-        Response(kong, 0, "token信息不完整", nil, nil)
+        Response(kong, 0, "invalid token", nil, nil)
         return
     }
 
@@ -143,7 +147,7 @@ func (authPlugin *AuthPlugin) LoginOut(kong *pdk.PDK) {
     }
 
     if loginInfo == nil || loginInfo == "" {
-        Response(kong, 0, "尚未登录", nil, nil)
+        Response(kong, 0, "unknown status", nil, nil)
         return
     }
 
@@ -166,7 +170,7 @@ func (authPlugin *AuthPlugin) LoginOut(kong *pdk.PDK) {
 
     _, err = authPlugin.Redis.Do("HDEL", Config.Token.Name, sign.Payload["uid"])
     if err != nil {
-        Response(kong, 0, "退出失败，请重试", nil, nil)
+        Response(kong, 0, "fail, pls retry", nil, nil)
         return
     }
 
@@ -176,7 +180,7 @@ func (authPlugin *AuthPlugin) LoginOut(kong *pdk.PDK) {
 func (authPlugin *AuthPlugin) Common(kong *pdk.PDK) {
     authentication, err := kong.Request.GetHeader(Config.Token.Name)
     if authentication == "" {
-        Response(kong, 0, "token无效", nil, nil)
+        Response(kong, 0, "token is required", nil, nil)
         return
     }
 
@@ -192,7 +196,7 @@ func (authPlugin *AuthPlugin) Common(kong *pdk.PDK) {
     }
 
     if _, ok := token.Payload["uid"]; !ok {
-        Response(kong, 0, "token无效", nil, nil)
+        Response(kong, 0, "invalid token", nil, nil)
         return
     }
 
@@ -202,9 +206,13 @@ func (authPlugin *AuthPlugin) Common(kong *pdk.PDK) {
         return
     }
 
-    loginInfo, _ := authPlugin.Redis.Do("HGET", Config.Token.Name, uid)
-    if loginInfo == nil || loginInfo == 0 {
-        Response(kong, 0, "尚未登录", nil, nil)
+    loginInfo, err := authPlugin.Redis.Do("HGET", Config.Token.Name, uid)
+    if err != nil {
+        Response(kong, 0, err.Error(), nil, nil)
+        return
+    }
+    if loginInfo == nil || loginInfo == "" {
+        Response(kong, 0, "unknown status", nil, nil)
         return
     }
 
@@ -217,7 +225,7 @@ func (authPlugin *AuthPlugin) Common(kong *pdk.PDK) {
     now := time.Now().Unix()
     if now-session.LastVisit > Config.Token.Expire {
         _, err = authPlugin.Redis.Do("HDEL", Config.Token.Name, uid)
-        Response(kong, 0, "尚未登录", nil, nil)
+        Response(kong, 0, "login expired", nil, nil)
         return
     }
 
@@ -243,9 +251,11 @@ func (authPlugin *AuthPlugin) Common(kong *pdk.PDK) {
 
 func CheckToken(authentication string, loginInfo interface{}) (Session, error) {
     session := Session{}
-    session.Parse(string(loginInfo.([]byte)))
+    if err := session.Parse(string(loginInfo.([]byte))); err != nil {
+        return session, err
+    }
     if session.Signature != strings.Split(authentication, ".")[1] {
-        return session, errors.New("尚未登录")
+        return session, errors.New("invalid token")
     }
 
     return session, nil
